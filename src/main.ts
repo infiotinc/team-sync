@@ -239,6 +239,7 @@ async function createTeamWithNoMembers(
   description?: string,
   parent_id?: number,
 ): Promise<void> {
+  core.debug(`Creating team ${teamName} parent=${parent_id}`)
   await client.teams.create({ org, name: teamName, description, privacy: "closed", parent_team_id: parent_id });
 
   core.debug(`Removing creator (${authenticatedUser}) from ${teamSlug}`);
