@@ -28964,24 +28964,28 @@ ${teamDataContent}`);
   }
 }
 async function synchronizeTeamData(client, org, authenticatedUser, teams) {
+  const parents = {};
   for (const teamData of teams) {
-    const teamName = teamData.team_name;
-    const teamSlug = (0, import_slugify.default)(teamName, { decamelize: false });
+    const { teamName, teamSlug } = teamData;
     const { description, members: desiredMembers, parent } = teamData;
     core.debug(`Desired team members for team slug ${teamSlug}:`);
     core.debug(JSON.stringify(desiredMembers));
     let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug, true);
-    let parentId = void 0;
-    if (existingTeam !== null && parent) {
-      const { team } = await getExistingTeamAndMembers(client, org, teamSlug, false);
-      if (team === null) {
-        core.error(`Expected ${parent} to already be created`);
-        throw new Error("Missing parent team");
+    let parentId;
+    if (existingTeam !== null && teamData.parentSlug) {
+      parentId = parents[teamData.parentSlug];
+      if (!parentId) {
+        const { team } = await getExistingTeamAndMembers(client, org, teamData.parentSlug, false);
+        if (team === null) {
+          core.error(`Expected ${parent} to already be created`);
+          throw new Error("Missing parent team");
+        }
+        parentId = team.id;
+        parents[teamData.parentSlug] = parentId;
       }
-      parentId = team.id;
       const rebuild = parentId !== existingTeam?.parent?.id;
       if (rebuild) {
-        core.info(`removing team ${team.name} because parent team differs`);
+        core.info(`removing team ${teamName} because parent team differs`);
         await client.teams.deleteInOrg({ org, team_slug: existingTeam.slug });
         existingTeam = null;
         existingMembers = [];
@@ -29021,11 +29025,14 @@ function parseTeamData(rawTeamConfig, prefix) {
       core.error(`${teamName}: team data is not an object`);
       throw new Error("yaml file format error");
     }
+    const prefixed = prefixName(teamName, prefix);
     const parsedTeamData = {
-      team_name: prefixName(teamName, prefix),
+      teamName: prefixed,
+      teamSlug: (0, import_slugify.default)(prefixed, { decamelize: false }),
       members: [],
       description: void 0,
       parent: void 0,
+      parentSlug: void 0,
       team_sync_ignored: false
     };
     if ("description" in teamData) {
@@ -29046,6 +29053,7 @@ function parseTeamData(rawTeamConfig, prefix) {
       }
       if (teamData.parent.trim() !== "") {
         parsedTeamData.parent = prefixName(teamData.parent, prefix);
+        parsedTeamData.parentSlug = (0, import_slugify.default)(parsedTeamData.parent);
       }
     }
     if ("members" in teamData) {

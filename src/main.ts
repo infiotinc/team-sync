@@ -5,11 +5,13 @@ import slugify from "@sindresorhus/slugify";
 import * as yaml from "js-yaml";
 
 interface TeamData {
-  team_name: string;
+  teamName: string;
+  teamSlug: string;
   members: string[];
   team_sync_ignored?: boolean;
   description: string | undefined;
   parent: string | undefined;
+  parentSlug: string | undefined;
 }
 
 async function run(): Promise<void> {
@@ -54,10 +56,11 @@ async function synchronizeTeamData(
   authenticatedUser: string,
   teams: TeamData[],
 ): Promise<void> {
+  const parents: Record<string, number> = {};
+
   // eslint-disable-next-line no-restricted-syntax
   for (const teamData of teams) {
-    const teamName = teamData.team_name;
-    const teamSlug = slugify(teamName, { decamelize: false });
+    const { teamName, teamSlug } = teamData;
 
     const { description, members: desiredMembers, parent } = teamData;
 
@@ -67,21 +70,25 @@ async function synchronizeTeamData(
     // eslint-disable-next-line no-await-in-loop
     let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug, true);
 
-    let parentId: number | undefined = undefined;
+    let parentId: number | undefined;
 
-    if (existingTeam !== null && parent) {
-      const { team } = await getExistingTeamAndMembers(client, org, teamSlug, false);
-      if (team === null) {
-        core.error(`Expected ${parent} to already be created`);
-        throw new Error("Missing parent team");
+    if (existingTeam !== null && teamData.parentSlug) {
+      parentId = parents[teamData.parentSlug];
+      if (!parentId) {
+        const { team } = await getExistingTeamAndMembers(client, org, teamData.parentSlug, false);
+        if (team === null) {
+          core.error(`Expected ${parent} to already be created`);
+          throw new Error("Missing parent team");
+        }
+        parentId = team.id;
+        parents[teamData.parentSlug] = parentId;
       }
-      parentId = team.id;
 
       // This is a bug  in the type schema
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
       const rebuild = parentId !== (existingTeam as unknown as any)?.parent?.id;
       if (rebuild) {
-        core.info(`removing team ${team.name} because parent team differs`);
+        core.info(`removing team ${teamName} because parent team differs`);
         await client.teams.deleteInOrg({ org, team_slug: existingTeam.slug });
 
         existingTeam = null;
@@ -133,11 +140,14 @@ function parseTeamData(rawTeamConfig: string, prefix: string): TeamData[] {
       throw new Error("yaml file format error");
     }
 
+    const prefixed = prefixName(teamName, prefix);
     const parsedTeamData: TeamData = {
-      team_name: prefixName(teamName, prefix),
+      teamName: prefixed,
+      teamSlug : slugify(prefixed, { decamelize: false }),
       members: [],
       description: undefined,
       parent: undefined,
+      parentSlug: undefined,
       team_sync_ignored: false,
     };
 
@@ -161,6 +171,7 @@ function parseTeamData(rawTeamConfig: string, prefix: string): TeamData[] {
       }
       if (teamData.parent.trim() !== "") {
         parsedTeamData.parent = prefixName(teamData.parent, prefix);
+        parsedTeamData.parentSlug = slugify(parsedTeamData.parent);
       }
     }
 
