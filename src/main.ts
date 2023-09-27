@@ -1,46 +1,50 @@
-import * as core from '@actions/core'
-import * as github from '@actions/github'
-import {Octokit} from '@octokit/rest'
-import slugify from '@sindresorhus/slugify'
-import * as yaml from 'js-yaml'
+import * as core from "@actions/core";
+import * as github from "@actions/github";
+import { Octokit } from "@octokit/rest";
+import slugify from "@sindresorhus/slugify";
+import * as yaml from "js-yaml";
 
 interface TeamData {
-  members: string[]
-  team_sync_ignored?: boolean
-  description?: string
+  team_name: string;
+  members: string[];
+  team_sync_ignored?: boolean;
+  description: string | undefined;
+  parent: string | undefined;
 }
 
 async function run(): Promise<void> {
   try {
-    const token = core.getInput('repo-token', {required: true})
-    const teamDataPath = core.getInput('team-data-path')
-    const teamNamePrefix = core.getInput('prefix-teams-with')
+    const token = core.getInput("repo-token", { required: true });
+    const teamDataPath = core.getInput("team-data-path");
+    const teamNamePrefix = core.getInput("prefix-teams-with");
 
-    const client = new github.GitHub(token)
-    const org = github.context.repo.owner
+    const client = new github.GitHub(token);
+    const org = github.context.repo.owner;
 
-    core.debug('Fetching authenticated user')
-    const authenticatedUserResponse = await client.users.getAuthenticated()
-    const authenticatedUser = authenticatedUserResponse.data.login
-    core.debug(`GitHub client is authenticated as ${authenticatedUser}`)
+    core.debug("Fetching authenticated user");
+    const authenticatedUserResponse = await client.users.getAuthenticated();
+    const authenticatedUser = authenticatedUserResponse.data.login;
+    core.debug(`GitHub client is authenticated as ${authenticatedUser}`);
 
-    core.debug(`Fetching team data from ${teamDataPath}`)
-    const teamDataContent = await fetchContent(client, teamDataPath)
+    core.debug(`Fetching team data from ${teamDataPath}`);
+    const teamDataContent = await fetchContent(client, teamDataPath);
 
-    core.debug(`raw teams config:\n${teamDataContent}`)
+    core.debug(`raw teams config:\n${teamDataContent}`);
 
-    const teams = parseTeamData(teamDataContent)
+    const teams = parseTeamData(teamDataContent, teamNamePrefix);
 
-    core.debug(
-      `Parsed teams configuration into this mapping of team names to team data: ${JSON.stringify(
-        Object.fromEntries(teams)
-      )}`
-    )
+    core.debug(`Parsed teams configuration into this mapping of team names to team data: ${JSON.stringify(teams)}`);
 
-    await synchronizeTeamData(client, org, authenticatedUser, teams, teamNamePrefix)
-  } catch (error) {
-    core.error(error)
-    core.setFailed(error.message)
+    // Only manage the active teams
+    const activeTeams = teams.filter((team) => !team.team_sync_ignored);
+
+    // Now sync all of the existing teams
+    await synchronizeTeamData(client, org, authenticatedUser, activeTeams);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      core.error(String(error));
+      core.setFailed(error.message);
+    }
   }
 }
 
@@ -48,107 +52,147 @@ async function synchronizeTeamData(
   client: github.GitHub,
   org: string,
   authenticatedUser: string,
-  teams: Map<string, TeamData>,
-  teamNamePrefix: string
+  teams: TeamData[],
 ): Promise<void> {
-  for (const [unprefixedTeamName, teamData] of teams.entries()) {
-    const teamName = prefixName(unprefixedTeamName, teamNamePrefix)
-    const teamSlug = slugify(teamName, {decamelize: false})
+  // eslint-disable-next-line no-restricted-syntax
+  for (const teamData of teams) {
+    const teamName = teamData.team_name;
+    const teamSlug = slugify(teamName, { decamelize: false });
 
-    if (teamData.team_sync_ignored) {
-      core.debug(`Ignoring team ${unprefixedTeamName} due to its team_sync_ignored property`)
-      continue
-    }
+    const { description, members: desiredMembers, parent } = teamData;
 
-    const {description, members: desiredMembers} = teamData
+    core.debug(`Desired team members for team slug ${teamSlug}:`);
+    core.debug(JSON.stringify(desiredMembers));
 
-    core.debug(`Desired team members for team slug ${teamSlug}:`)
-    core.debug(JSON.stringify(desiredMembers))
+    // eslint-disable-next-line no-await-in-loop
+    let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug);
 
-    const {existingTeam, existingMembers} = await getExistingTeamAndMembers(client, org, teamSlug)
+    let parentTeam: Octokit.TeamsGetByNameResponse | null = null;
 
-    if (existingTeam) {
-      core.debug(`Existing team members for team slug ${teamSlug}:`)
-      core.debug(JSON.stringify(existingMembers))
+    if (existingTeam !== null && parent) {
+      const { team } = await getExistingTeamAndMembers(client, org, teamSlug);
+      if (team === null) {
+        core.error(`Expected ${parent} to already be created`);
+        throw new Error("Missing parent team");
+      }
+      parentTeam = team;
 
-      await client.teams.updateInOrg({org, team_slug: teamSlug, name: teamName, description})
-      await removeFormerTeamMembers(client, org, teamSlug, existingMembers, desiredMembers)
-    } else {
-      core.debug(`No team was found in ${org} with slug ${teamSlug}. Creating one.`)
-      await createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description)
-    }
+      // This is a bug  in the type schema
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const et = existingTeam as object;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+      const rebuild = parentTeam?.id !== (et as unknown as any)?.parent?.id;
+      if (rebuild) {
+        await client.teams.deleteInOrg({ org, team_slug: existingTeam.slug });
 
-    await addNewTeamMembers(client, org, teamSlug, existingMembers, desiredMembers)
-  }
-}
-
-function parseTeamData(rawTeamConfig: string): Map<string, TeamData> {
-  const teamsData = JSON.parse(JSON.stringify(yaml.safeLoad(rawTeamConfig)))
-  const unexpectedFormatError = new Error(
-    'Unexpected team data format (expected an object mapping team names to team metadata)'
-  )
-
-  if (typeof teamsData !== 'object') {
-    throw unexpectedFormatError
-  }
-
-  const teams: Map<string, TeamData> = new Map()
-  for (const teamName in teamsData) {
-    const teamData = teamsData[teamName]
-
-    if (teamData.members) {
-      const {members} = teamData
-
-      if (Array.isArray(members)) {
-        const teamGitHubUsernames: string[] = []
-
-        for (const member of members) {
-          if (typeof member.github === 'string') {
-            teamGitHubUsernames.push(member.github)
-          } else {
-            throw new Error(`Invalid member data encountered within team ${teamName}`)
-          }
-        }
-
-        const parsedTeamData: TeamData = {members: teamGitHubUsernames}
-
-        if ('description' in teamData) {
-          const {description} = teamData
-
-          if (typeof description === 'string') {
-            parsedTeamData.description = description
-          } else {
-            throw new Error(`Invalid description property for team ${teamName} (expected a string)`)
-          }
-        }
-
-        if ('team_sync_ignored' in teamData) {
-          const {team_sync_ignored} = teamData
-
-          if (typeof team_sync_ignored === 'boolean') {
-            parsedTeamData.team_sync_ignored = team_sync_ignored
-          } else {
-            throw new Error(
-              `Invalid team_sync_ignored property for team ${teamName} (expected a boolean)`
-            )
-          }
-        }
-
-        teams.set(teamName, parsedTeamData)
-        continue
+        existingTeam = null;
+        existingMembers = [];
       }
     }
 
-    throw unexpectedFormatError
+    if (existingTeam) {
+      core.debug(`Existing team members for team slug ${teamSlug}:`);
+      core.debug(JSON.stringify(existingMembers));
+
+      await client.teams.updateInOrg({ org, team_slug: teamSlug, name: teamName, description });
+      await removeFormerTeamMembers(client, org, teamSlug, existingMembers, desiredMembers);
+    } else {
+      core.debug(`No team was found in ${org} with slug ${teamSlug}. Creating one.`);
+      await createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description, parentTeam?.id);
+    }
+
+    await addNewTeamMembers(client, org, teamSlug, existingMembers, desiredMembers);
+  }
+}
+
+function parseTeamData(rawTeamConfig: string, prefix: string): TeamData[] {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  const teamsData: unknown = JSON.parse(JSON.stringify(yaml.safeLoad(rawTeamConfig)));
+  const unexpectedFormatError = new Error(
+    "Unexpected team data format (expected an object mapping team names to team metadata)",
+  );
+
+  if (typeof teamsData !== "object") {
+    throw unexpectedFormatError;
   }
 
-  return teams
+  const teams: TeamData[] = [];
+
+  if (typeof teamsData !== "object" || teamsData === null) {
+    core.error(`yaml data is wrong format`);
+    throw new Error("yaml file format error");
+  }
+
+  Object.entries(teamsData).forEach(([teamName, teamData]: [string, unknown]) => {
+    if (typeof teamName !== "string" || teamName === "") {
+      core.error(`team name is not a string got: ${teamName}`);
+      throw new Error("yaml file format error");
+    }
+
+    if (typeof teamData !== "object" || teamData === null) {
+      core.error(`${teamName}: team data is not an object`);
+      throw new Error("yaml file format error");
+    }
+
+    const parsedTeamData: TeamData = {
+      team_name: prefixName(teamName, prefix),
+      members: [],
+      description: undefined,
+      parent: undefined,
+      team_sync_ignored: false,
+    };
+
+    if ("description" in teamData) {
+      if (typeof teamData.description !== "string") {
+        throw new Error(`Invalid description property for team ${teamName} (expected a string)`);
+      }
+      parsedTeamData.description = teamData.description;
+    }
+
+    if ("team_sync_ignored" in teamData) {
+      if (typeof teamData.team_sync_ignored !== "boolean") {
+        throw new Error(`Invalid team_sync_ignored property for team ${teamName} (expected a boolean)`);
+      }
+      parsedTeamData.team_sync_ignored = teamData.team_sync_ignored;
+    }
+
+    if ("parent" in teamData) {
+      if (typeof teamData.parent !== "string") {
+        throw new Error(`Invalid team_sync_ignored property for team ${teamName} (expected a boolean)`);
+      }
+      if (teamData.parent.trim() !== "") {
+        parsedTeamData.parent = prefixName(teamData.parent, prefix);
+      }
+    }
+
+    if ("members" in teamData) {
+      if (!Array.isArray(teamData.members)) {
+        core.error(`${teamName}: team members is not an array`);
+        throw new Error("yaml file format error");
+      }
+
+      const usernames = teamData.members.map((member: unknown) => {
+        if (typeof member === "object" && member !== null && "github" in member && typeof member.github === "string") {
+          return member.github;
+        }
+        core.error(`${teamName}: invalid team member`);
+        throw new Error(`Invalid member data encountered within team ${teamName}`);
+      });
+
+      parsedTeamData.members = usernames;
+    }
+
+    teams.push(parsedTeamData);
+  });
+
+  return teams;
 }
 
 function prefixName(unprefixedName: string, prefix: string): string {
-  const trimmedPrefix = prefix.trim()
+  const trimmedPrefix = prefix.trim();
+  const trimmed = unprefixedName.trim();
 
-  return trimmedPrefix === '' ? unprefixedName : `${trimmedPrefix} ${unprefixedName}`
+  return trimmedPrefix === "" ? trimmed : `${trimmedPrefix} ${trimmed}`;
 }
 
 async function removeFormerTeamMembers(
@@ -156,16 +200,16 @@ async function removeFormerTeamMembers(
   org: string,
   teamSlug: string,
   existingMembers: string[],
-  desiredMembers: string[]
+  desiredMembers: string[],
 ): Promise<void> {
-  for (const username of existingMembers) {
-    if (!desiredMembers.includes(username)) {
-      core.debug(`Removing ${username} from ${teamSlug}`)
-      await client.teams.removeMembershipInOrg({org, team_slug: teamSlug, username})
-    } else {
-      core.debug(`Keeping ${username} in ${teamSlug}`)
-    }
-  }
+  await Promise.all(
+    existingMembers
+      .filter((member) => !desiredMembers.includes(member))
+      .map(async (username) => {
+        core.debug(`Removing ${username} from ${teamSlug}`);
+        await client.teams.removeMembershipInOrg({ org, team_slug: teamSlug, username });
+      }),
+  );
 }
 
 async function addNewTeamMembers(
@@ -173,14 +217,16 @@ async function addNewTeamMembers(
   org: string,
   teamSlug: string,
   existingMembers: string[],
-  desiredMembers: string[]
+  desiredMembers: string[],
 ): Promise<void> {
-  for (const username of desiredMembers) {
-    if (!existingMembers.includes(username)) {
-      core.debug(`Adding ${username} to ${teamSlug}`)
-      await client.teams.addOrUpdateMembershipInOrg({org, team_slug: teamSlug, username})
-    }
-  }
+  await Promise.all(
+    desiredMembers
+      .filter((member) => !existingMembers.includes(member))
+      .map(async (username) => {
+        core.debug(`Adding ${username} to ${teamSlug}`);
+        await client.teams.addOrUpdateMembershipInOrg({ org, team_slug: teamSlug, username });
+      }),
+  );
 }
 
 async function createTeamWithNoMembers(
@@ -189,64 +235,73 @@ async function createTeamWithNoMembers(
   teamName: string,
   teamSlug: string,
   authenticatedUser: string,
-  description?: string
+  description?: string,
+  parent_id?: number,
 ): Promise<void> {
-  await client.teams.create({org, name: teamName, description, privacy: 'closed'})
+  await client.teams.create({ org, name: teamName, description, privacy: "closed", parent_team_id: parent_id });
 
-  core.debug(`Removing creator (${authenticatedUser}) from ${teamSlug}`)
+  core.debug(`Removing creator (${authenticatedUser}) from ${teamSlug}`);
 
   await client.teams.removeMembershipInOrg({
     org,
     team_slug: teamSlug,
-    username: authenticatedUser
-  })
+    username: authenticatedUser,
+  });
 }
 
 async function getExistingTeamAndMembers(
   client: github.GitHub,
   org: string,
-  teamSlug: string
+  teamSlug: string,
 ): Promise<{
-  existingTeam: Octokit.TeamsGetByNameResponse | null
-  existingMembers: string[]
+  team: Octokit.TeamsGetByNameResponse | null;
+  members: string[];
 }> {
-  let existingTeam
-  let existingMembers: string[] = []
+  let existingTeam;
+  let existingMembers: string[] = [];
 
   try {
-    const teamResponse = await client.teams.getByName({org, team_slug: teamSlug})
+    const teamResponse = await client.teams.getByName({ org, team_slug: teamSlug });
 
-    existingTeam = teamResponse.data
+    existingTeam = teamResponse.data;
 
-    const membersResponse = await client.teams.listMembersInOrg({org, team_slug: teamSlug})
+    const membersResponse = await client.teams.listMembersInOrg({ org, team_slug: teamSlug });
 
-    existingMembers = membersResponse.data.map(m => m.login)
+    existingMembers = membersResponse.data.map((m) => m.login);
   } catch (error) {
-    existingTeam = null
+    existingTeam = null;
   }
 
-  return {existingTeam, existingMembers}
+  return { team: existingTeam, members: existingMembers };
 }
 
 async function fetchContent(client: github.GitHub, repoPath: string): Promise<string> {
-  const response = await client.repos.getContents({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    path: repoPath,
-    ref: github.context.sha
-  })
+  let response;
+
+  try {
+    response = await client.repos.getContents({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      path: repoPath,
+      ref: github.context.sha,
+    });
+  } catch (err) {
+    core.error(`Unable to load team file ${repoPath}`);
+    throw err;
+  }
 
   if (Array.isArray(response.data)) {
-    throw new Error('path must point to a single file, not a directory')
+    throw new Error("path must point to a single file, not a directory");
   }
 
-  const {content, encoding} = response.data
+  const { content, encoding } = response.data;
 
-  if (typeof content !== 'string' || encoding !== 'base64') {
-    throw new Error('Octokit.repos.getContents returned an unexpected response')
+  if (typeof content !== "string" || encoding !== "base64") {
+    throw new Error("Octokit.repos.getContents returned an unexpected response");
   }
 
-  return Buffer.from(content, encoding).toString()
+  return Buffer.from(content, encoding).toString();
 }
 
-run()
+// eslint-disable-next-line no-console
+run().catch((err) => console.error(err));
