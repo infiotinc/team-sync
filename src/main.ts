@@ -67,7 +67,7 @@ async function synchronizeTeamData(
     // eslint-disable-next-line no-await-in-loop
     let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug, true);
 
-    let parentTeam: Octokit.TeamsGetByNameResponse | null = null;
+    let parentId: number | undefined = undefined;
 
     if (existingTeam !== null && parent) {
       const { team } = await getExistingTeamAndMembers(client, org, teamSlug, false);
@@ -75,13 +75,11 @@ async function synchronizeTeamData(
         core.error(`Expected ${parent} to already be created`);
         throw new Error("Missing parent team");
       }
-      parentTeam = team;
+      parentId = team.id;
 
       // This is a bug  in the type schema
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const et = existingTeam as object;
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-      const rebuild = parentTeam?.id !== (et as unknown as any)?.parent?.id;
+      const rebuild = parentId !== (existingTeam as unknown as any)?.parent?.id;
       if (rebuild) {
         core.info(`removing team ${team.name} because parent team differs`);
         await client.teams.deleteInOrg({ org, team_slug: existingTeam.slug });
@@ -99,7 +97,7 @@ async function synchronizeTeamData(
       await removeFormerTeamMembers(client, org, teamSlug, existingMembers, desiredMembers);
     } else {
       core.debug(`No team was found in ${org} with slug ${teamSlug}. Creating one.`);
-      await createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description, parentTeam?.id);
+      await createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description, parentId);
     }
 
     await addNewTeamMembers(client, org, teamSlug, existingMembers, desiredMembers);
@@ -236,11 +234,11 @@ async function createTeamWithNoMembers(
   teamName: string,
   teamSlug: string,
   authenticatedUser: string,
-  description?: string,
-  parent_id?: number,
+  description: string | undefined,
+  parentId: number | undefined,
 ): Promise<void> {
-  core.debug(`Creating team ${teamName} parent=${parent_id}`)
-  await client.teams.create({ org, name: teamName, description, privacy: "closed", parent_team_id: parent_id });
+  core.debug(`Creating team ${teamName} parent=${parentId}`)
+  await client.teams.create({ org, name: teamName, description, privacy: "closed", parent_team_id: parentId });
 
   core.debug(`Removing creator (${authenticatedUser}) from ${teamSlug}`);
 

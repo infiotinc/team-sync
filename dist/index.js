@@ -28971,16 +28971,15 @@ async function synchronizeTeamData(client, org, authenticatedUser, teams) {
     core.debug(`Desired team members for team slug ${teamSlug}:`);
     core.debug(JSON.stringify(desiredMembers));
     let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug, true);
-    let parentTeam = null;
+    let parentId = void 0;
     if (existingTeam !== null && parent) {
       const { team } = await getExistingTeamAndMembers(client, org, teamSlug, false);
       if (team === null) {
         core.error(`Expected ${parent} to already be created`);
         throw new Error("Missing parent team");
       }
-      parentTeam = team;
-      const et = existingTeam;
-      const rebuild = parentTeam?.id !== et?.parent?.id;
+      parentId = team.id;
+      const rebuild = parentId !== existingTeam?.parent?.id;
       if (rebuild) {
         core.info(`removing team ${team.name} because parent team differs`);
         await client.teams.deleteInOrg({ org, team_slug: existingTeam.slug });
@@ -28995,7 +28994,7 @@ async function synchronizeTeamData(client, org, authenticatedUser, teams) {
       await removeFormerTeamMembers(client, org, teamSlug, existingMembers, desiredMembers);
     } else {
       core.debug(`No team was found in ${org} with slug ${teamSlug}. Creating one.`);
-      await createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description, parentTeam?.id);
+      await createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description, parentId);
     }
     await addNewTeamMembers(client, org, teamSlug, existingMembers, desiredMembers);
   }
@@ -29088,9 +29087,9 @@ async function addNewTeamMembers(client, org, teamSlug, existingMembers, desired
     })
   );
 }
-async function createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description, parent_id) {
-  core.debug(`Creating team ${teamName} parent=${parent_id}`);
-  await client.teams.create({ org, name: teamName, description, privacy: "closed", parent_team_id: parent_id });
+async function createTeamWithNoMembers(client, org, teamName, teamSlug, authenticatedUser, description, parentId) {
+  core.debug(`Creating team ${teamName} parent=${parentId}`);
+  await client.teams.create({ org, name: teamName, description, privacy: "closed", parent_team_id: parentId });
   core.debug(`Removing creator (${authenticatedUser}) from ${teamSlug}`);
   await client.teams.removeMembershipInOrg({
     org,
