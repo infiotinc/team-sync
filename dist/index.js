@@ -1154,12 +1154,12 @@ var require_lib = __commonJS({
             throw new Error("Client has already been disposed.");
           }
           const parsedUrl = new URL(requestUrl);
-          let info = this._prepareRequest(verb, parsedUrl, headers);
+          let info2 = this._prepareRequest(verb, parsedUrl, headers);
           const maxTries = this._allowRetries && RetryableHttpVerbs.includes(verb) ? this._maxRetries + 1 : 1;
           let numTries = 0;
           let response;
           do {
-            response = yield this.requestRaw(info, data);
+            response = yield this.requestRaw(info2, data);
             if (response && response.message && response.message.statusCode === HttpCodes.Unauthorized) {
               let authenticationHandler;
               for (const handler of this.handlers) {
@@ -1169,7 +1169,7 @@ var require_lib = __commonJS({
                 }
               }
               if (authenticationHandler) {
-                return authenticationHandler.handleAuthentication(this, info, data);
+                return authenticationHandler.handleAuthentication(this, info2, data);
               } else {
                 return response;
               }
@@ -1192,8 +1192,8 @@ var require_lib = __commonJS({
                   }
                 }
               }
-              info = this._prepareRequest(verb, parsedRedirectUrl, headers);
-              response = yield this.requestRaw(info, data);
+              info2 = this._prepareRequest(verb, parsedRedirectUrl, headers);
+              response = yield this.requestRaw(info2, data);
               redirectsRemaining--;
             }
             if (!response.message.statusCode || !HttpResponseRetryCodes.includes(response.message.statusCode)) {
@@ -1222,7 +1222,7 @@ var require_lib = __commonJS({
        * @param info
        * @param data
        */
-      requestRaw(info, data) {
+      requestRaw(info2, data) {
         return __awaiter(this, void 0, void 0, function* () {
           return new Promise((resolve, reject) => {
             function callbackForResult(err, res) {
@@ -1234,7 +1234,7 @@ var require_lib = __commonJS({
                 resolve(res);
               }
             }
-            this.requestRawWithCallback(info, data, callbackForResult);
+            this.requestRawWithCallback(info2, data, callbackForResult);
           });
         });
       }
@@ -1244,12 +1244,12 @@ var require_lib = __commonJS({
        * @param data
        * @param onResult
        */
-      requestRawWithCallback(info, data, onResult) {
+      requestRawWithCallback(info2, data, onResult) {
         if (typeof data === "string") {
-          if (!info.options.headers) {
-            info.options.headers = {};
+          if (!info2.options.headers) {
+            info2.options.headers = {};
           }
-          info.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
+          info2.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
         }
         let callbackCalled = false;
         function handleResult(err, res) {
@@ -1258,7 +1258,7 @@ var require_lib = __commonJS({
             onResult(err, res);
           }
         }
-        const req = info.httpModule.request(info.options, (msg) => {
+        const req = info2.httpModule.request(info2.options, (msg) => {
           const res = new HttpClientResponse(msg);
           handleResult(void 0, res);
         });
@@ -1270,7 +1270,7 @@ var require_lib = __commonJS({
           if (socket) {
             socket.end();
           }
-          handleResult(new Error(`Request timeout: ${info.options.path}`));
+          handleResult(new Error(`Request timeout: ${info2.options.path}`));
         });
         req.on("error", function(err) {
           handleResult(err);
@@ -1297,27 +1297,27 @@ var require_lib = __commonJS({
         return this._getAgent(parsedUrl);
       }
       _prepareRequest(method, requestUrl, headers) {
-        const info = {};
-        info.parsedUrl = requestUrl;
-        const usingSsl = info.parsedUrl.protocol === "https:";
-        info.httpModule = usingSsl ? https : http;
+        const info2 = {};
+        info2.parsedUrl = requestUrl;
+        const usingSsl = info2.parsedUrl.protocol === "https:";
+        info2.httpModule = usingSsl ? https : http;
         const defaultPort = usingSsl ? 443 : 80;
-        info.options = {};
-        info.options.host = info.parsedUrl.hostname;
-        info.options.port = info.parsedUrl.port ? parseInt(info.parsedUrl.port) : defaultPort;
-        info.options.path = (info.parsedUrl.pathname || "") + (info.parsedUrl.search || "");
-        info.options.method = method;
-        info.options.headers = this._mergeHeaders(headers);
+        info2.options = {};
+        info2.options.host = info2.parsedUrl.hostname;
+        info2.options.port = info2.parsedUrl.port ? parseInt(info2.parsedUrl.port) : defaultPort;
+        info2.options.path = (info2.parsedUrl.pathname || "") + (info2.parsedUrl.search || "");
+        info2.options.method = method;
+        info2.options.headers = this._mergeHeaders(headers);
         if (this.userAgent != null) {
-          info.options.headers["user-agent"] = this.userAgent;
+          info2.options.headers["user-agent"] = this.userAgent;
         }
-        info.options.agent = this._getAgent(info.parsedUrl);
+        info2.options.agent = this._getAgent(info2.parsedUrl);
         if (this.handlers) {
           for (const handler of this.handlers) {
-            handler.prepareRequest(info.options);
+            handler.prepareRequest(info2.options);
           }
         }
-        return info;
+        return info2;
       }
       _mergeHeaders(headers) {
         if (this.requestOptions && this.requestOptions.headers) {
@@ -2161,10 +2161,10 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       command_1.issueCommand("notice", utils_1.toCommandProperties(properties), message instanceof Error ? message.toString() : message);
     }
     exports.notice = notice;
-    function info(message) {
+    function info2(message) {
       process.stdout.write(message + os.EOL);
     }
-    exports.info = info;
+    exports.info = info2;
     function startGroup(name) {
       command_1.issue("group", name);
     }
@@ -19547,10 +19547,10 @@ var require_which = __commonJS({
         cb = opt;
         opt = {};
       }
-      var info = getPathInfo(cmd, opt);
-      var pathEnv = info.env;
-      var pathExt = info.ext;
-      var pathExtExe = info.extExe;
+      var info2 = getPathInfo(cmd, opt);
+      var pathEnv = info2.env;
+      var pathExt = info2.ext;
+      var pathExtExe = info2.extExe;
       var found = [];
       (function F(i, l) {
         if (i === l) {
@@ -19585,10 +19585,10 @@ var require_which = __commonJS({
     }
     function whichSync(cmd, opt) {
       opt = opt || {};
-      var info = getPathInfo(cmd, opt);
-      var pathEnv = info.env;
-      var pathExt = info.ext;
-      var pathExtExe = info.extExe;
+      var info2 = getPathInfo(cmd, opt);
+      var pathEnv = info2.env;
+      var pathExt = info2.ext;
+      var pathExtExe = info2.extExe;
       var found = [];
       for (var i = 0, l = pathEnv.length; i < l; i++) {
         var pathPart = pathEnv[i];
@@ -24519,12 +24519,12 @@ var require_http_client = __commonJS({
           throw new Error("Client has already been disposed.");
         }
         let parsedUrl = new URL(requestUrl);
-        let info = this._prepareRequest(verb, parsedUrl, headers);
+        let info2 = this._prepareRequest(verb, parsedUrl, headers);
         let maxTries = this._allowRetries && RetryableHttpVerbs.indexOf(verb) != -1 ? this._maxRetries + 1 : 1;
         let numTries = 0;
         let response;
         while (numTries < maxTries) {
-          response = await this.requestRaw(info, data);
+          response = await this.requestRaw(info2, data);
           if (response && response.message && response.message.statusCode === HttpCodes.Unauthorized) {
             let authenticationHandler;
             for (let i = 0; i < this.handlers.length; i++) {
@@ -24534,7 +24534,7 @@ var require_http_client = __commonJS({
               }
             }
             if (authenticationHandler) {
-              return authenticationHandler.handleAuthentication(this, info, data);
+              return authenticationHandler.handleAuthentication(this, info2, data);
             } else {
               return response;
             }
@@ -24557,8 +24557,8 @@ var require_http_client = __commonJS({
                 }
               }
             }
-            info = this._prepareRequest(verb, parsedRedirectUrl, headers);
-            response = await this.requestRaw(info, data);
+            info2 = this._prepareRequest(verb, parsedRedirectUrl, headers);
+            response = await this.requestRaw(info2, data);
             redirectsRemaining--;
           }
           if (HttpResponseRetryCodes.indexOf(response.message.statusCode) == -1) {
@@ -24586,7 +24586,7 @@ var require_http_client = __commonJS({
        * @param info
        * @param data
        */
-      requestRaw(info, data) {
+      requestRaw(info2, data) {
         return new Promise((resolve, reject) => {
           let callbackForResult = function(err, res) {
             if (err) {
@@ -24594,7 +24594,7 @@ var require_http_client = __commonJS({
             }
             resolve(res);
           };
-          this.requestRawWithCallback(info, data, callbackForResult);
+          this.requestRawWithCallback(info2, data, callbackForResult);
         });
       }
       /**
@@ -24603,10 +24603,10 @@ var require_http_client = __commonJS({
        * @param data
        * @param onResult
        */
-      requestRawWithCallback(info, data, onResult) {
+      requestRawWithCallback(info2, data, onResult) {
         let socket;
         if (typeof data === "string") {
-          info.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
+          info2.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
         }
         let callbackCalled = false;
         let handleResult = (err, res) => {
@@ -24615,7 +24615,7 @@ var require_http_client = __commonJS({
             onResult(err, res);
           }
         };
-        let req = info.httpModule.request(info.options, (msg) => {
+        let req = info2.httpModule.request(info2.options, (msg) => {
           let res = new HttpClientResponse(msg);
           handleResult(null, res);
         });
@@ -24626,7 +24626,7 @@ var require_http_client = __commonJS({
           if (socket) {
             socket.end();
           }
-          handleResult(new Error("Request timeout: " + info.options.path), null);
+          handleResult(new Error("Request timeout: " + info2.options.path), null);
         });
         req.on("error", function(err) {
           handleResult(err, null);
@@ -24653,27 +24653,27 @@ var require_http_client = __commonJS({
         return this._getAgent(parsedUrl);
       }
       _prepareRequest(method, requestUrl, headers) {
-        const info = {};
-        info.parsedUrl = requestUrl;
-        const usingSsl = info.parsedUrl.protocol === "https:";
-        info.httpModule = usingSsl ? https : http;
+        const info2 = {};
+        info2.parsedUrl = requestUrl;
+        const usingSsl = info2.parsedUrl.protocol === "https:";
+        info2.httpModule = usingSsl ? https : http;
         const defaultPort = usingSsl ? 443 : 80;
-        info.options = {};
-        info.options.host = info.parsedUrl.hostname;
-        info.options.port = info.parsedUrl.port ? parseInt(info.parsedUrl.port) : defaultPort;
-        info.options.path = (info.parsedUrl.pathname || "") + (info.parsedUrl.search || "");
-        info.options.method = method;
-        info.options.headers = this._mergeHeaders(headers);
+        info2.options = {};
+        info2.options.host = info2.parsedUrl.hostname;
+        info2.options.port = info2.parsedUrl.port ? parseInt(info2.parsedUrl.port) : defaultPort;
+        info2.options.path = (info2.parsedUrl.pathname || "") + (info2.parsedUrl.search || "");
+        info2.options.method = method;
+        info2.options.headers = this._mergeHeaders(headers);
         if (this.userAgent != null) {
-          info.options.headers["user-agent"] = this.userAgent;
+          info2.options.headers["user-agent"] = this.userAgent;
         }
-        info.options.agent = this._getAgent(info.parsedUrl);
+        info2.options.agent = this._getAgent(info2.parsedUrl);
         if (this.handlers) {
           this.handlers.forEach((handler) => {
-            handler.prepareRequest(info.options);
+            handler.prepareRequest(info2.options);
           });
         }
-        return info;
+        return info2;
       }
       _mergeHeaders(headers) {
         const lowercaseKeys = (obj) => Object.keys(obj).reduce((c, k) => (c[k.toLowerCase()] = obj[k], c), {});
@@ -28970,10 +28970,10 @@ async function synchronizeTeamData(client, org, authenticatedUser, teams) {
     const { description, members: desiredMembers, parent } = teamData;
     core.debug(`Desired team members for team slug ${teamSlug}:`);
     core.debug(JSON.stringify(desiredMembers));
-    let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug);
+    let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug, true);
     let parentTeam = null;
     if (existingTeam !== null && parent) {
-      const { team } = await getExistingTeamAndMembers(client, org, teamSlug);
+      const { team } = await getExistingTeamAndMembers(client, org, teamSlug, false);
       if (team === null) {
         core.error(`Expected ${parent} to already be created`);
         throw new Error("Missing parent team");
@@ -28982,6 +28982,7 @@ async function synchronizeTeamData(client, org, authenticatedUser, teams) {
       const et = existingTeam;
       const rebuild = parentTeam?.id !== et?.parent?.id;
       if (rebuild) {
+        core.info(`removing team ${team.name} because parent team differs`);
         await client.teams.deleteInOrg({ org, team_slug: existingTeam.slug });
         existingTeam = null;
         existingMembers = [];
@@ -29096,26 +29097,35 @@ async function createTeamWithNoMembers(client, org, teamName, teamSlug, authenti
     username: authenticatedUser
   });
 }
-async function getExistingTeamAndMembers(client, org, teamSlug) {
+async function getExistingTeamAndMembers(client, org, teamSlug, getMembers) {
   let existingTeam;
   let existingMembers = [];
   try {
+    core.info(`Getting team info for ${teamSlug}`);
     const teamResponse = await client.teams.getByName({ org, team_slug: teamSlug });
     existingTeam = teamResponse.data;
-    const membersResponse = await client.teams.listMembersInOrg({ org, team_slug: teamSlug });
-    existingMembers = membersResponse.data.map((m) => m.login);
+    if (getMembers) {
+      const membersResponse = await client.teams.listMembersInOrg({ org, team_slug: teamSlug });
+      existingMembers = membersResponse.data.map((m) => m.login);
+    }
   } catch (error2) {
     existingTeam = null;
   }
   return { team: existingTeam, members: existingMembers };
 }
 async function fetchContent(client, repoPath) {
-  const response = await client.repos.getContents({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    path: repoPath,
-    ref: github.context.sha
-  });
+  let response;
+  try {
+    response = await client.repos.getContents({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      path: repoPath,
+      ref: github.context.sha
+    });
+  } catch (err) {
+    core.error(`Unable to load team file ${repoPath}`);
+    throw err;
+  }
   if (Array.isArray(response.data)) {
     throw new Error("path must point to a single file, not a directory");
   }

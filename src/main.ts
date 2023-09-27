@@ -65,12 +65,12 @@ async function synchronizeTeamData(
     core.debug(JSON.stringify(desiredMembers));
 
     // eslint-disable-next-line no-await-in-loop
-    let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug);
+    let { team: existingTeam, members: existingMembers } = await getExistingTeamAndMembers(client, org, teamSlug, true);
 
     let parentTeam: Octokit.TeamsGetByNameResponse | null = null;
 
     if (existingTeam !== null && parent) {
-      const { team } = await getExistingTeamAndMembers(client, org, teamSlug);
+      const { team } = await getExistingTeamAndMembers(client, org, teamSlug, false);
       if (team === null) {
         core.error(`Expected ${parent} to already be created`);
         throw new Error("Missing parent team");
@@ -83,6 +83,7 @@ async function synchronizeTeamData(
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
       const rebuild = parentTeam?.id !== (et as unknown as any)?.parent?.id;
       if (rebuild) {
+        core.info(`removing team ${team.name} because parent team differs`);
         await client.teams.deleteInOrg({ org, team_slug: existingTeam.slug });
 
         existingTeam = null;
@@ -253,6 +254,7 @@ async function getExistingTeamAndMembers(
   client: github.GitHub,
   org: string,
   teamSlug: string,
+  getMembers: boolean,
 ): Promise<{
   team: Octokit.TeamsGetByNameResponse | null;
   members: string[];
@@ -261,13 +263,16 @@ async function getExistingTeamAndMembers(
   let existingMembers: string[] = [];
 
   try {
+    core.info(`Getting team info for ${teamSlug}`)
     const teamResponse = await client.teams.getByName({ org, team_slug: teamSlug });
 
     existingTeam = teamResponse.data;
 
-    const membersResponse = await client.teams.listMembersInOrg({ org, team_slug: teamSlug });
+    if (getMembers) {
+      const membersResponse = await client.teams.listMembersInOrg({ org, team_slug: teamSlug });
 
-    existingMembers = membersResponse.data.map((m) => m.login);
+      existingMembers = membersResponse.data.map((m) => m.login);
+    }
   } catch (error) {
     existingTeam = null;
   }
